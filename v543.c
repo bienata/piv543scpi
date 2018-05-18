@@ -168,7 +168,7 @@ int processScpiCommand ( char *cmd, char *out ) {
             break;
         }
     }
-    digitalWrite ( LED_READY, uchLedScpi ) ;        
+    digitalWrite ( LED_SCPI, uchLedScpi ) ;        
     uchLedScpi ^= 1;    
     return o;
 }
