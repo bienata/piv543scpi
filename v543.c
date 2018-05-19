@@ -207,9 +207,9 @@ void onMeterReadyInterrupt( void ) {
 // main foo.
 int main( int argc, char *argv[] ) {
 
-     struct sockaddr_in serv_addr, cli_addr;  
+     struct sockaddr_in serverAddress, clientAddress;  
      int serverSocket, clientSocket;
-     int clilen;
+     int clientAddressLen;
      int n;
      int data;
      char commandBuffer[ 64 ];
@@ -226,36 +226,36 @@ int main( int argc, char *argv[] ) {
 
     
     if ( wiringPiISR( LINE_READY, INT_EDGE_RISING, &onMeterReadyInterrupt ) < 0 ) { 
-        printf ( "Unable to setup ISR: %s\n", strerror (errno) ) ;
-        return 1 ;
+        printf ( "Unable to setup ISR: %s\n", strerror (errno) );
+        exit(1) ;
     }    
          
      serverSocket = socket( AF_INET, SOCK_STREAM, 0 );
      if ( serverSocket < 0 ) {
-         perror ( "00 error when opening server socket" );
+         printf ( "00 error when opening server socket: %s\n", strerror (errno) ) ;         
 	     exit (1);
      }
      
-     bzero( (char *)&serv_addr, sizeof(serv_addr) );
-     serv_addr.sin_family = AF_INET;
-     serv_addr.sin_addr.s_addr = INADDR_ANY;
-     serv_addr.sin_port = htons( SCPI_PORT );
+     bzero( (char *)&serverAddress, sizeof(serverAddress) );
+     serverAddress.sin_family = AF_INET;
+     serverAddress.sin_addr.s_addr = INADDR_ANY;
+     serverAddress.sin_port = htons( SCPI_PORT );
      
-     if ( bind( serverSocket, (struct sockaddr *) &serv_addr, sizeof(serv_addr) ) < 0 ) {
-         perror ( "01 error when binding server socket" );
+     if ( bind( serverSocket, (struct sockaddr*)&serverAddress, sizeof(serverAddress) ) < 0 ) {
+         printf ( "01 error when binding server socket: %s\n", strerror(errno) );
 	     exit (1);
      }
      
      listen( serverSocket, 5);     
-     clilen = sizeof(cli_addr);
+     clientAddressLen = sizeof(clientAddress);
   
      // czekaj na polecenia     
      while ( 1 ) {
        
         printf( "10 waiting for connection\n" );
 	
-        if ( ( clientSocket = accept( serverSocket, (struct sockaddr *) &cli_addr, (socklen_t*) &clilen) ) < 0 ) {
-	        perror ( "02 error on accept incoming connection" );
+        if ( ( clientSocket = accept( serverSocket, (struct sockaddr *)&clientAddress, (socklen_t*)&clientAddressLen) ) < 0 ) {	        
+            printf ( "02 error on accept incoming connection: %s\n", strerror (errno) );                     
 	        exit (1);
 	    }
 	
@@ -265,7 +265,7 @@ int main( int argc, char *argv[] ) {
 	    bzero( responseBuffer, sizeof( responseBuffer ) );	  	
 	
     	if ( ( n = read( clientSocket, commandBuffer, sizeof( commandBuffer ) - 1 ) ) < 0 ){
-	        perror ( "03 error when receiving request" );
+            printf ( "03 error when receiving request: %s\n", strerror (errno) );                                 
 	        exit (1);	      
 	    }
 
@@ -273,8 +273,8 @@ int main( int argc, char *argv[] ) {
         
 	    int exitRequest = processScpiCommand ( trim( commandBuffer ), responseBuffer );
     
-	    if ( (n = write( clientSocket, responseBuffer, strlen( responseBuffer ) ) ) < 0 ) {
-	        perror ( "04 error when sending response" );
+	    if ( (n = write( clientSocket, responseBuffer, strlen( responseBuffer ) ) ) < 0 ) {	        
+            printf ( "04 error when sending response: %s\n", strerror (errno) );
 	        exit (1);	      	      	   
 	    } 
 	    else {
