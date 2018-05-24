@@ -213,7 +213,8 @@ int main( int argc, char *argv[] ) {
      int n;
      int data;
      char commandBuffer[ 64 ];
-     char responseBuffer[ 64 ];     
+     char responseBuffer[ 64 ];  
+     int cntr = 0;
      
     wiringPiSetup () ;     
     pinMode ( LINE_READY, INPUT );
@@ -252,7 +253,7 @@ int main( int argc, char *argv[] ) {
      // czekaj na polecenia     
      while ( 1 ) {
        
-        printf( "10 waiting for connection\n" );
+        printf( "10 waiting for connection [%04d]\n", cntr++ );
 	
         if ( ( clientSocket = accept( serverSocket, (struct sockaddr *)&clientAddress, (socklen_t*)&clientAddressLen) ) < 0 ) {	        
             printf ( "02 error on accept incoming connection: %s\n", strerror (errno) );                     
