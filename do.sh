@@ -1,1 +1,1 @@
-g++ -o v543 -lwiringPi v543.c
+g++ -v -o v543lxi -lwiringPi v543lxi.c
