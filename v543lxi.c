@@ -1,10 +1,10 @@
 /*
 
 kompilacja:
-  g++ -o v543 -lwiringPi v543.c
+  g++ -o v543lxi -lwiringPi v543.c
   
 uruchomienie:
-  ./v543
+  ./v543lxi
   
 */
 
@@ -37,23 +37,25 @@ uruchomienie:
 #define DEVICE_SERIAL       "01473"
 #define FIRMWARE_VERSION    "666-tasza-2018"
 
+unsigned char   uchLedReady = 0;
+unsigned char   uchLedScpi = 0;
+unsigned long   ulRawMeterData = 0L;
+unsigned char   uchRangeId = 0;
+unsigned char   uchModeId = 0;
+unsigned char   uchPolarity = 0;
 
-char* trim(char*);  // proto, kod niżej
-void handlerIdn(char*);
-void handlerRst(char*); 
-void handlerSenseMode(char*);
-void handlerVRange(char*);
-void handlerRRange(char*);
-void handlerRaw(char*);
-void handlerDisplay(char*);
-void handlerSystemError(char*); 
-void handlerExit(char*); 
+char* trim(char*);  
+void makeLower (char*);
 
-void handlerMeasureVoltage(char*);
-void handlerMeasureResistance(char*);
-void handlerSenseVoltageRange(char*);
-void handlerSenseResistanceRange(char*);
-
+void handleIdn(char*);
+void handleRaw(char*);
+void handleDisplay(char*);
+void handleSystemError(char*); 
+void handleMeasureVoltage(char*);
+void handleMeasureResistance(char*);
+void handleSenseFunction(char*);
+void handleSenseVoltageRange(char*);
+void handleSenseResistanceRange(char*);
 
 // prototyp handlerka komendy scpi, po prostu wypełnia wynik w out i tyle
 typedef void (*TScpiCommandHandler)(char*);
@@ -66,61 +68,59 @@ typedef struct {
 
 // na informacje o zakresie
 typedef struct {
-    const char  *label;
-    float scale;
-    const char  *format;    
+    const char  *label;     // nalepka
+    float value;            // zakres numerycznie
+    float scale;            // skalowanie
+//    const char  *format;    
 } TRangeInfo;
 
 
-unsigned char   uchLedReady = 0;
-unsigned char   uchLedScpi = 0;
-unsigned long   ulRawMeterData = 0L;
-unsigned char   uchRangeId = 0;
-unsigned char   uchModeId = 0;
-unsigned char   uchPolarity = 0;
-
-
+//------------------------------------------------------------------------------
 // to póki co obsługujemy
 TCommand scpiCommands[] = {
-    {   "*idn?",                    &handlerIdn }, 
-    
-    {   ":measure:voltage:dc?",     &handlerMeasureVoltage },
-    {   ":measure:voltage:ac?",     &handlerMeasureVoltage },
-    {   ":measure:resistance?",     &handlerMeasureResistance },            
-    {   ":sense:voltage:dc:range?", &handlerSenseVoltageRange },
-    {   ":sense:voltage:ac:range?", &handlerSenseVoltageRange },
-    {   ":sense:resistance:range?", &handlerSenseResistanceRange },        
-    
-    {   ":sense:mode?",             &handlerSenseMode },
-    
-    {   ":measure:raw?",            &handlerRaw },
-    {   ":measure:display?",        &handlerDisplay }, 
-    
-    {   ":syst:err?",               &handlerSystemError },
-    {   "syst:err?",                &handlerSystemError },     
+    // identyfikacja
+    {   "*idn?",                    &handleIdn }, 
+    // pomiary
+    {   ":measure:voltage:dc?",     &handleMeasureVoltage },
+    {   ":measure:voltage:ac?",     &handleMeasureVoltage },
+    {   ":measure:resistance?",     &handleMeasureResistance },            
+    // zakresy
+    {   ":sense:voltage:dc:range?", &handleSenseVoltageRange },
+    {   ":sense:voltage:ac:range?", &handleSenseVoltageRange },
+    {   ":sense:resistance:range?", &handleSenseResistanceRange },        
+    // tryb pracy
+    {   ":sense:function?",         &handleSenseFunction },
+    // polecenia systemowe
+    {   ":system:raw?",             &handleRaw },
+    {   ":system:display?",         &handleDisplay }, 
+    // bledy
+    {   ":syst:err?",               &handleSystemError },
+    {   "syst:err?",                &handleSystemError },     
     {   NULL ,                      NULL }
 };
 
 TRangeInfo volRangeInfo[] = {
-    {   "100",       100   ,       "%c%-6.2f\n"     },  //0  119.99
-    {   "1",         10000 ,       "%c%-5.4f\n"     },  //1  1.1999 
-    {   "1000",      10    ,       "%c%-6.1f\n"     },  //2  1199.9 
-    {   "10",        1000  ,       "%c%-5.3f\n"     },  //3  11.999
-    {   "0.1",       100000,       "%c%-6.5f\n"     },  //4  0.11999
-    {   "error",      1     , "\n" },  //5
-    {   "error",      1     , "\n" },  //6
-    {   "error",      1     , "\n" }   //7
+    //  label,      value,  scale
+    {   "100V",     100,    100     },//0  
+    {   "1V",       1,      10000   },//1  
+    {   "1kV",      1000,   10      },//2 
+    {   "10V",      10,     1000    },//3 
+    {   "100mV",    0.1,    100000  },//4 
+    {   "error",    1,      1       },//5
+    {   "error",    1,      1       },//6
+    {   "error",    1,      1       } //7
 };
 
-TRangeInfo resRanges[] = {
-    {   "100000",      100   , ""},  //0
-    {   "1000",        10000 , ""},  //1
-    {   "error",      1     , ""},  //2
-    {   "10000",       1000  , ""},  //3
-    {   "error",      1     , ""},  //4
-    {   "1000000",        10000 , ""},  //5
-    {   "error",      1     , ""},  //6
-    {   "10000000",       1000  , ""}   //7
+TRangeInfo resRangeInfo[] = {
+    // label,       value,  scale
+    {   "100k",     100E3,  0.1     },//0
+    {   "1k",       1E3,    10      },//1  
+    {   "error",    0,      1       },//2
+    {   "10k",      10E3,   1       },//3  
+    {   "error",    0,      1       },//4
+    {   "1M",       1E6,    0.01    },//5
+    {   "error",    0,      1       },//6
+    {   "10M",      10E6,   0.001   } //7
 };
 
 
@@ -132,63 +132,70 @@ const char *pszModeDesc[] = {
       "DC"        // 4        
 };
 
-    
-void makeLower ( char *s ) {
-    for(int i = 0; s[ i ]; i++ ) {
-      s[ i ] = tolower( s[ i ] );
-    }   
-}
-
-
-// identyfikacja urządzenia 
-void handlerSystemError(char *out) {    
-    strcpy ( out, "0,\"No error\"\n" );
-}
-
-
-// identyfikacja urządzenia 
-void handlerIdn(char *out) {    
-    sprintf ( out, 
-              "%s,%s,%s,%s\n",
-              DEVICE_VENDOR,
-              DEVICE_NAME,
-              DEVICE_SERIAL,
-              FIRMWARE_VERSION
-    );    
-}
-
-// R,AC,DC
-void handlerSenseMode(char *out) {    
-    sprintf( out, "%d|%s\n", uchModeId, pszModeDesc[ uchModeId ] );
-}
-
-// V,mV
-void handlerVRange(char *out) {    
-   // sprintf( out, "%d|%s|%d\r\n", uchRangeId, volRanges[ uchRangeId ].label, volRanges[ uchRangeId ].scale );        
-}
-
-// kohm, Mohm
-void handlerRRange(char *out) {    
- //   sprintf( out, "%d|%s|%d\r\n", uchRangeId, resRanges[ uchRangeId ].label, resRanges[ uchRangeId ].scale );            
-}
-
-void handlerMeasureResistance (char *out) {
-}
-
-void handlerSenseResistanceRange (char *out) {
-}
-void handlerSenseVoltageRange (char *out) {
-}
-
+//------------------------------------------------------------------------------
+// numeryczna zawartośc wystwietlacza    
 int getNumericDisplay( void ) {
     char s[16];
     sprintf( s, "%05X", ulRawMeterData &0x1FFFF );        
     return atoi( s );
 }
+
+
+//------------------------------------------------------------------------------
+// zawsze wszystko jest ok
+void handleSystemError(char *out) {    
+    strcpy ( out, "0,\"No error\"\n" );
+}
+
+//------------------------------------------------------------------------------
+// identyfikacja urządzenia 
+void handleIdn(char *out) {    
+    sprintf ( 
+        out, 
+        "%s,%s,%s,%s\n",
+        DEVICE_VENDOR,
+        DEVICE_NAME,
+        DEVICE_SERIAL,
+        FIRMWARE_VERSION
+    );    
+}
+
+//------------------------------------------------------------------------------
+// tryb pracy R,AC,DC
+void handleSenseFunction(char *out) {    
+    sprintf( out, "%d|%s\n", uchModeId, pszModeDesc[ uchModeId ] );
+}
+
+//------------------------------------------------------------------------------
+// zakres dla rezystancji
+void handleSenseResistanceRange (char *out) {
+    sprintf( 
+        out, 
+        "%E|%d|%s\n", 
+        resRangeInfo[ uchRangeId ].value,
+        uchRangeId, 
+        resRangeInfo[ uchRangeId ].label
+    );                
+}
+
+//------------------------------------------------------------------------------
+// zakres dla napiecia, AC czy DC już wszystko jedno :(
+void handleSenseVoltageRange (char *out) {
+    sprintf( 
+        out, 
+        "%E|%d|%s\n", 
+        volRangeInfo[ uchRangeId ].value,
+        uchRangeId, 
+        volRangeInfo[ uchRangeId ].label
+    );                
+}
+
     
-void handlerMeasureVoltage (char *out) { 
+//------------------------------------------------------------------------------
+// pomiar napiecia
+void handleMeasureVoltage (char *out) { 
     if ( uchModeId != 4 /*DC*/ && uchModeId != 2 /*AC*/) {
-        strcpy ( out, "error\n" );            
+        strcpy ( out, "1, wrong mode error\n" );            
         return;
     }
     char sign = ' ';
@@ -198,30 +205,50 @@ void handlerMeasureVoltage (char *out) {
     float v = ((float)getNumericDisplay()) / volRangeInfo[ uchRangeId ].scale;
     sprintf( 
         out, 
-        volRangeInfo[ uchRangeId ].format, 
+        "%E\n", 
         sign,
         v
+    );            
+}
+
+//------------------------------------------------------------------------------
+// pomiar rezystancji
+void handleMeasureResistance (char *out) { 
+    if ( uchModeId != 1 /*R*/) {
+        strcpy ( out, "1, wrong mode error\n" );            
+        return;
+    }
+    float r = ((float)getNumericDisplay()) / resRangeInfo[ uchRangeId ].scale;
+    sprintf( 
+        out, 
+        "%E\n", 
+        r
     );            
 }
 
 
 //------------------------------------------------------------------------
 // odsyła znak i pięć cyferek wyświetlacza
-void handlerDisplay(char *out) {
+void handleDisplay(char *out) {
     char sign = ' ';
     if ( uchModeId == 4 /*DC*/){
         sign = uchPolarity == 1 ? '+' : '-';
     }
-    sprintf( out, "%c%05X\r\n", sign, ulRawMeterData &0x1FFFF );    
+    else if ( uchModeId == 2 /*AC*/){
+        sign = '~';
+    }
+    sprintf( out, "%c%05X\n", sign, ulRawMeterData &0x1FFFF );    
 } 
 
-// 32 bity hex
-void handlerRaw(char *out) {
+//------------------------------------------------------------------------
+// odsyła surowe 32 bity hex
+void handleRaw(char *out) {
     sprintf( out, "%08X\n", ulRawMeterData );    
 }
 
 
-// rozpoznanie i wykoannie polecenia SCPI
+//------------------------------------------------------------------------
+// rozpoznanie i wykonanie polecenia SCPI
 void processScpiCommand ( char *cmd, char *out ) {
     // domyslnie blad
     strcpy ( out, "error\n" );    
@@ -236,8 +263,8 @@ void processScpiCommand ( char *cmd, char *out ) {
     uchLedScpi ^= 1;    
 }
 
-
-// :) żywcem zerżnięte z dawnego Arduino
+//------------------------------------------------------------------------
+// :) żywcem zerżnięte z dawnego kodu dla Arduino, jak pisałam dla EdW
 unsigned long readV543rawData( void ) {
   unsigned long rawFrame = 0L;
   int n;  
@@ -254,7 +281,7 @@ unsigned long readV543rawData( void ) {
   return rawFrame & 0x03FFFFFFL;
 }
 
-
+//------------------------------------------------------------------------
 // obsługa przerwania od GPIO z pinu LINE_READY Meratronika
 void onMeterReadyInterrupt( void ) {        
     // fizyczny odczyt
@@ -270,14 +297,14 @@ void onMeterReadyInterrupt( void ) {
 // main foo.
 int main( int argc, char *argv[] ) {
 
-     struct sockaddr_in serverAddress, clientAddress;  
-     int serverSocket, clientSocket;
-     int clientAddressLen;
-     int n;
-     int data;
-     char commandBuffer[ 64 ];
-     char responseBuffer[ 64 ];  
-     int cntr = 0;
+    struct sockaddr_in serverAddress, clientAddress;  
+    int serverSocket, clientSocket;
+    int clientAddressLen;
+    int n;
+    int data;
+    char commandBuffer[ 64 ];
+    char responseBuffer[ 64 ];  
+    int cntr = 0;
      
     wiringPiSetup () ;     
     pinMode ( LINE_READY, INPUT );
@@ -328,7 +355,6 @@ int main( int argc, char *argv[] ) {
         
         printf ( "03 begin session\n" );                     
         
-        //getpeername( clientSocket , (struct sockaddr*)&clientAddress , (socklen_t*)&clientAddressLen );   
         printf("Host connected , ip %s , port %d \n" , inet_ntoa(clientAddress.sin_addr) , ntohs(clientAddress.sin_port));           
         
 	    while( 1 ){	
@@ -367,7 +393,17 @@ int main( int argc, char *argv[] ) {
      return 0; 
 }
 
-// ----------- obce z sieci ----------------
+
+// -------------- przydasie ----------------------------------------------------
+
+void makeLower ( char *s ) {
+    for(int i = 0; s[ i ]; i++ ) {
+      s[ i ] = tolower( s[ i ] );
+    }   
+}
+
+
+// ----------- obce z sieci ----------------------------------------------------
 // 
 // zapożyczone:
 // https://stackoverflow.com/questions/122616/how-do-i-trim-leading-trailing-whitespace-in-a-standard-way
@@ -411,3 +447,4 @@ char *trim(char *str)
     return str;
 }
 // koniec zapożyczen
+//
