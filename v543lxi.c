@@ -35,7 +35,7 @@ uruchomienie:
 #define DEVICE_VENDOR       "Meratronik"
 #define DEVICE_NAME         "V543"
 #define DEVICE_SERIAL       "01473"
-#define FIRMWARE_VERSION    "666-tasza-2018"
+#define FIRMWARE_VERSION    "NB02-666-tasza-2018"
 
 unsigned char   uchLedReady = 0;
 unsigned char   uchLedScpi = 0;
@@ -205,7 +205,7 @@ void handleMeasureVoltage (char *out) {
     float v = ((float)getNumericDisplay()) / volRangeInfo[ uchRangeId ].scale;
     sprintf( 
         out, 
-        "%E\n", 
+        "%c%E\n", 
         sign,
         v
     );            
@@ -304,7 +304,8 @@ int main( int argc, char *argv[] ) {
     int data;
     char commandBuffer[ 64 ];
     char responseBuffer[ 64 ];  
-    int cntr = 0;
+    int sessionCntr = 0;
+    int commandCntr = 0;    
      
     wiringPiSetup () ;     
     pinMode ( LINE_READY, INPUT );
@@ -346,7 +347,7 @@ int main( int argc, char *argv[] ) {
      
      while ( 1 ) {
        
-        printf( "10 waiting for connection [%04d]\n", cntr++ );
+        printf( "10 waiting for connection [%04d]\n", sessionCntr++ );
 	
         if ( ( clientSocket = accept( serverSocket, (struct sockaddr *)&clientAddress, (socklen_t*)&clientAddressLen) ) < 0 ) {	        
             printf ( "02 error on accept incoming connection: %s\n", strerror (errno) );                     
@@ -355,7 +356,10 @@ int main( int argc, char *argv[] ) {
         
         printf ( "03 begin session\n" );                     
         
-        printf("Host connected , ip %s , port %d \n" , inet_ntoa(clientAddress.sin_addr) , ntohs(clientAddress.sin_port));           
+        printf( "03 remote peer ip %s , port %d \n" , 
+                inet_ntoa( clientAddress.sin_addr ) , 
+                ntohs( clientAddress.sin_port ) 
+        );           
         
 	    while( 1 ){	
             
@@ -368,8 +372,7 @@ int main( int argc, char *argv[] ) {
                 break;
 	        }
 	        else {
-                printf ( "04 process session\n" );                                             
-
+                printf ( "04 process session [%04d]\n", commandCntr++ );
                 if ( strlen(commandBuffer) == 0 ) {
                     close( clientSocket );                                
                     printf ( "55 end session\n" );                                                                 
@@ -389,6 +392,7 @@ int main( int argc, char *argv[] ) {
                 }       
             }        
         } // of session while     
+        commandCntr = 0;
      } // of server while
      return 0; 
 }
